@@ -5,6 +5,7 @@
    <script src="https://unpkg.com/aframe-event-set-component@3.0.3/dist/aframe-event-set-component.min.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.5.4/dist/aframe-extras.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.5.2/dist/aframe-extras.min.js"></script>
+	  
   </head>
   <body>
 <!-- BOTÓN PARA ENTRAR EN VR -->
@@ -665,5 +666,25 @@ geometry="primitive: plane; width: 1 heigth= 2"></a-image>
   
       
     </a-scene>
+	  
+ 
+
+
+  <!-- SCRIPT DE ENTRADA VR MANUAL -->
+  <script>
+    const scene = document.querySelector('a-scene');
+    const button = document.getElementById('enterVR');
+
+    button.addEventListener('click', () => {
+      if (scene.hasLoaded) {
+        scene.enterVR();
+      } else {
+        scene.addEventListener('loaded', () => {
+          scene.enterVR();
+        });
+      }
+    });
+  </script>
+	  
   </body>
 </html>
