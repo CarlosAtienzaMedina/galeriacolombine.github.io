@@ -8,35 +8,13 @@
 	  
   </head>
   <body>
-<!-- BOTÓN PARA ENTRAR EN VR -->
-<button
-  id="enterVR"
-  style="
-    position: fixed;
-    z-index: 999;
-    top: 20px;
-    left: 20px;
-    padding: 12px 18px;
-    font-size: 16px;
-  ">
-  Entrar en VR
-</button>
-	  
-    <a-scene
-      
-  vr-mode-ui="enabled: false"
-  renderer="
-    antialias: false;
-    precision: mediump;
-    pixelRatio: 1;
-    physicallyCorrectLights: false;
-  "
-  background="color: #000"
+ 
+    <a-scene>
 
 
       <!--Glorieta-->
      
-
+<a-assets>
       <a-cylinder src="https://i.ibb.co/0yxWtzTL/Rotonda-Interior.png"
         position="0 -0.55 -3" scale="75 0 75" 
         radius="0.5"
@@ -595,10 +573,10 @@ visible="false"
 position="-22 2 -12" rotation="0 225 0" scale="2 3 0"
 geometry="primitive: plane; width: 1 heigth= 2"></a-image>
      
-      
+      </a-assets>
       
       <!--Planos de cierre-->
-      
+      <a-assets>
        <a-plane id="1" src="https://i.ibb.co/Y7vLRRDL/Logo-CBS-Nuevo.jpg" position="-17 12 -75" material="color: #ffffff" rotation="0 17 0" scale="45 30 1"></a-plane>
        <a-plane id="3" src="https://i.ibb.co/pv6G2Wzp/FP-LOGO-estable.png" position="-72 12 -20" material="color: #ffffff" rotation="0 72 0" scale="45 30 1"></a-plane>
        <a-plane id="2" src="https://i.ibb.co/6J8D0n2r/el-prado.jpg" position="-50 12 -55" material="color: #ffffff" rotation="0 50 0" scale="45 30 1"></a-plane>
@@ -612,7 +590,7 @@ geometry="primitive: plane; width: 1 heigth= 2"></a-image>
        <a-plane id="11" src="https://i.ibb.co/Y7vLRRDL/Logo-CBS-Nuevo.jpg" position="50 12 -55" material="color: #ffffff" rotation="0 320 0" scale="45 30 1"></a-plane>
        <a-plane id="12" src="https://i.ibb.co/gLGB6xxM/cibeles-pride.webp" position="17 12 -76.5" material="color: #ffffff" rotation="0 336.5 0" scale="45 30 1"></a-plane>
       
-      
+      </a-assets>
       
       <!-- Puerta de Alcalá-->
      <a-assets>
@@ -624,9 +602,9 @@ geometry="primitive: plane; width: 1 heigth= 2"></a-image>
 	 <a-gltf-model src="https://cdn.tinyglb.com/models/9e3b7a457ff647bcbfce3619241567e0.glb"></a-gltf-model>
       
       <!-- Cielo-->
-      
+      <a-assets>
       <a-sky src="https://i.ibb.co/s9KpWvLr/cielo-nocturno.jpg"></a-sky>
-    
+    </a-assets>
     <!-- Links-->
     
        
@@ -667,24 +645,6 @@ geometry="primitive: plane; width: 1 heigth= 2"></a-image>
       
     </a-scene>
 	  
- 
-
-
-  <!-- SCRIPT DE ENTRADA VR MANUAL -->
-  <script>
-    const scene = document.querySelector('a-scene');
-    const button = document.getElementById('enterVR');
-
-    button.addEventListener('click', () => {
-      if (scene.hasLoaded) {
-        scene.enterVR();
-      } else {
-        scene.addEventListener('loaded', () => {
-          scene.enterVR();
-        });
-      }
-    });
-  </script>
 	  
   </body>
 </html>
