@@ -34,8 +34,20 @@
         color="#787878"></a-plane>
      
 		<!-- Audio-->
+
+		<a-assets>
+  <audio id="audioPuerta" src="audio.mp3" preload="auto"></audio>
+</a-assets>
+
+		<a-sound
+  id="puertaSound"
+  src="#audioPuerta"
+  loop="true"
+  position="0 2 5"
+  volume="0.7">
+</a-sound>
     
-        <a-sound src="audio_puerta_alcala.mp3" autoplay="true" position="0 2 5"></a-sound>
+       
 
       <!-- Señalética-->
       
