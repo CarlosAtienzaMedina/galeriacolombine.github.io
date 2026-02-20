@@ -36,8 +36,16 @@
 		<!-- Audio-->
       
     
-       <a-sound src="src: url(Audio Puerta de Alcalá.mp3)" autoplay="true" position="0 2 5"></a-sound>
-      
+       <a-assets>
+  <audio id="audioPuerta" src="audio_puerta_alcala.mp3" preload="auto"></audio>
+</a-assets>
+      <a-sound
+  id="puertaSound"
+  src="#audioPuerta"
+  loop="true"
+  position="0 2 5"
+  volume="0.7">
+</a-sound>
       
 
       <!-- Señalética-->
