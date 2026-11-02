@@ -4,7 +4,31 @@
     <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
    <script src="https://unpkg.com/aframe-event-set-component@3.0.3/dist/aframe-event-set-component.min.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.5.4/dist/aframe-extras.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.5.2/dist/aframe-extras.min.js"></script>
+    <!-- Componente: perímetro de seguridad. Impide salir de la glorieta
+         (los paneles de cierre están a ~70 m del centro). Vigila la posición
+         real de la cabeza, así funciona con el joystick y caminando con las gafas. -->
+    <script>
+      AFRAME.registerComponent('limite-recorrido', {
+        schema: { radio: {default: 66} },
+        init: function () {
+          this.camPos = new THREE.Vector3();
+        },
+        tick: function () { this.limitar(); },
+        tock: function () { this.limitar(); },
+        limitar: function () {
+          var camEl = this.el.querySelector('[camera]');
+          if (!camEl) return;
+          camEl.object3D.getWorldPosition(this.camPos);
+          var d = Math.sqrt(this.camPos.x * this.camPos.x + this.camPos.z * this.camPos.z);
+          if (d <= this.data.radio) return;
+          var k = this.data.radio / d;
+          var rig = this.el.object3D.position;
+          rig.x -= this.camPos.x * (1 - k);
+          rig.z -= this.camPos.z * (1 - k);
+        }
+      });
+    </script>
+
     <!-- Componente: saludo de Carmen al hacer clic (ratón o gatillo VR) -->
     <script>
       AFRAME.registerComponent('saludo-carmen', {
@@ -666,6 +690,7 @@ geometry="primitive: plane; width: 1 heigth= 2"></a-image>
         position="0 0 0"
         movement-controls="speed: 0.3; fly: false;"
         universal-controls="movementEnabled: true;"
+        limite-recorrido="radio: 66"
       >
          <!-- Controlador mano derecha -->
       <a-entity
