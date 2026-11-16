@@ -32,6 +32,131 @@
       });
     </script>
 
+    <script>
+    /* ───────── Cartel interactivo ─────────
+       Al activarse:
+         · el cartel se ilumina con un marco de luz pulsante
+         · aparece(n) su(s) cartela(s) junto al cartel, en el lado desde el que se mira
+       Cartel: 3 × 4 m.  Cartela: 2,14 × 3 m (proporción real de las imágenes). */
+    var CARTEL_ANCHO = 3, CARTEL_ALTO = 4;
+    var CARTELA_ANCHO = 2.14;
+    var COLOR_LUZ = '#FFC65D';
+    var cartelActivo = null;
+
+    AFRAME.registerComponent('cartel-interactivo', {
+      schema: {
+        cartelas: {type: 'array'},          // ids de las cartelas asociadas
+        color:    {default: COLOR_LUZ},
+        ancho:    {default: CARTEL_ANCHO},  // tamaño del cartel (m)
+        alto:     {default: CARTEL_ALTO},
+        lado:     {default: 1},             // 1 = cartela a la derecha, -1 = a la izquierda
+        dy:       {default: -0.2}           // desnivel de la cartela respecto al centro del cartel
+      },
+
+      init: function () {
+        this.activo = false;
+        // En VR se activa apuntando con el mando y pulsando el GATILLO.
+        // (Se ignora un segundo clic inmediato:
+        //  el láser de las dos manos puede enviar el mismo clic a la vez.)
+        var self0 = this; this.ultimoClic = 0;
+        this.el.addEventListener('click', function () {
+          var t = performance.now(); if (t - self0.ultimoClic < 350) return;
+          self0.ultimoClic = t; self0.alternar();
+        });
+        this.marco = [];
+        var w = this.data.ancho, h = this.data.alto, self = this;
+
+        /* Dos capas: filo intenso + halo suave. Están FUERA del área del cartel,
+           en su mismo plano, así se ven desde ambas caras sin tapar la imagen. */
+        [[w * 0.04, 1.0], [w * 0.1, 0.3]].forEach(function (capa) {
+          var t = capa[0], op = capa[1];
+          var barras = [
+            {x: 0,             y:  h / 2 + t / 2, w: w + 2 * t, h: t},  // arriba
+            {x: 0,             y: -h / 2 - t / 2, w: w + 2 * t, h: t},  // abajo
+            {x: -w / 2 - t / 2, y: 0,             w: t,         h: h},  // izquierda
+            {x:  w / 2 + t / 2, y: 0,             w: t,         h: h}   // derecha
+          ];
+          barras.forEach(function (b) {
+            var p = document.createElement('a-plane');
+            p.setAttribute('width', b.w);
+            p.setAttribute('height', b.h);
+            p.setAttribute('position', b.x + ' ' + b.y + ' 0');
+            p.setAttribute('material', {shader: 'flat', color: self.data.color, side: 'double',
+                                        transparent: true, opacity: op, depthWrite: false});
+            p.setAttribute('visible', false);
+            p.dataset.opBase = op;
+            self.el.appendChild(p);
+            self.marco.push(p);
+          });
+        });
+      },
+
+      alternar: function () { this.activo ? this.desactivar() : this.activar(); },
+
+      activar: function () {
+        if (cartelActivo && cartelActivo !== this) cartelActivo.desactivar();
+        cartelActivo = this;
+        this.activo = true;
+        this.marco.forEach(function (p) { p.setAttribute('visible', true); });
+        this.colocarCartelas();
+      },
+
+      desactivar: function () {
+        this.activo = false;
+        if (cartelActivo === this) cartelActivo = null;
+        this.marco.forEach(function (p) { p.setAttribute('visible', false); });
+        this.data.cartelas.forEach(function (id) {
+          var c = document.getElementById(id);
+          if (c) c.setAttribute('visible', false);
+        });
+      },
+
+      /* Coloca las cartelas junto al cartel, mirando hacia el visitante.
+         1 cartela  → a la derecha del cartel.
+         2 cartelas → una a cada lado. */
+      colocarCartelas: function () {
+        var obj = this.el.object3D;
+        var pos = obj.getWorldPosition(new THREE.Vector3());
+        var yaw = obj.rotation.y;
+
+        /* ¿Desde qué cara se está mirando? */
+        var cam = document.getElementById('camera').object3D.getWorldPosition(new THREE.Vector3());
+        var normal = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+        var haciaCam = cam.clone().sub(pos);
+        if (normal.dot(haciaCam) < 0) yaw += Math.PI;
+
+        var q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+        var datos = this.data;
+        var lados = datos.cartelas.length > 1 ? [1, -1] : [datos.lado];
+
+        this.data.cartelas.forEach(function (id, i) {
+          var c = document.getElementById(id);
+          if (!c) return;
+          var anchoCartela = parseFloat(c.getAttribute('width')) || CARTELA_ANCHO;
+          var lateral = datos.ancho / 2 + 0.3 + anchoCartela / 2;
+          var off = new THREE.Vector3(lateral * lados[i % lados.length], datos.dy, 0.1).applyQuaternion(q);
+          c.object3D.position.set(pos.x + off.x, pos.y + off.y, pos.z + off.z);
+          c.object3D.rotation.set(0, yaw, 0);
+          c.setAttribute('visible', true);
+          c.emit('aparecer');
+        });
+      },
+
+      tick: function (t) {
+        if (!this.activo) return;
+        // Si te alejas mucho, el cartel se apaga solo
+        var camPos = document.getElementById('camera').object3D.getWorldPosition(new THREE.Vector3());
+        if (camPos.distanceTo(this.el.object3D.getWorldPosition(new THREE.Vector3())) > 20) { this.desactivar(); return; }
+        var k = 0.65 + 0.35 * Math.sin(t / 260);   // pulso suave
+        this.marco.forEach(function (p) {
+          var m = p.getObject3D('mesh');
+          if (m) m.material.opacity = p.dataset.opBase * k;
+        });
+      }
+    });
+
+    </script>
+
     <!-- Componente: saludo de Carmen al hacer clic (ratón o gatillo VR) -->
     <script>
       AFRAME.registerComponent('saludo-carmen', {
@@ -208,35 +333,32 @@
       
       <!--Cartel de inicio-->
 		   
-		   <a-cylinder colisionador="forma: auto" position="0 0.60 -6" radius="0.5" height="1.5" color="#FFC65D" material="color: #f48e57" scale="-0.070 0.740 0.130"></a-cylinder>
-		   <a-box colisionador="forma: auto" 
-    class="clickable"        
-    position="0 1.60 -6" rotation="0 90 0" color="#4CC3D9" material="color: #f48e57" scale="0.10 0.97 1" src="Carteles_Comprimidos/FP-LOGO-estable.jpg" 
-		 event-set__enter="_event: raycaster-intersected; _target: #boxText0; visible: true"
-  event-set__leave="_event: raycaster-intersected-cleared; _target: #boxText0; visible: false"></a-box>
+		   <a-cylinder colisionador="forma: auto" position="0 0.60 -6" radius="0.5" height="1.50" color="#FFC65D" material="color: #f48e57" scale="-0.070 0.740 0.130"></a-cylinder>
+		   <a-box colisionador="forma: auto" id="cartel00" class="clickable" position="0 1.60 -6" width="1.5" height="1" depth="0.08" src="Carteles_Comprimidos/FP-LOGO-estable.jpg"
+		   cartel-interactivo="cartelas: boxText0; ancho: 1.5; alto: 1; lado: -1; dy: 0.05"
+		   event-set__enter="_event: raycaster-intersected; _target: #textoInicio; visible: true" 
+           event-set__leave="_event: raycaster-intersected-cleared; _target: #textoInicio; visible: false"></a-box>
 		  
 		   
 		   <!-- Texto oculto que aparece al pasar el cursor --> 
 <a-text 
-        
-id=""
-value="INICIO: Bienvenido a la muestra virtual CBS. Sigue las flechas e informate con las cajas situadas debajo de los carteles para aprender diversas cosas a cerca de Carmen de Burgos." 
+id="textoInicio"
+value="INICIO: Bienvenido a la muestra virtual CBS. Apunta a este cartel y pulsa el gatillo para ver como se hace el recorrido. Sigue las flechas y apunta a los carteles con el mando para descubrir cosas sobre Carmen de Burgos." 
 align="center"
 color="#FFF" 
 visible="false" 
-position="0 2 -5" 
-geometry="primitive: plane; width: 6">
+position="0 2.9 -6" width="6"
+geometry="primitive: plane; width: 6.4; height: auto" material="shader: flat; color: #000; opacity: 0.55; transparent: true">
 </a-text> 
       
-      <!--Cartel infografía de inicio-->
       
-      <a-box colisionador="forma: auto"
-              id="boxText0"
-position="0 1.65 -5" rotation="0 360 0"
-scale="1 1 0"	   
-width="1"
-height="2"
-src="Carteles_Comprimidos/recorrido_00-INICIO.jpg"></a-box>
+      <!-- Cartel inicio infografía-->
+      
+      
+       <a-image colisionador="forma: auto"
+              id="boxText0" width="0.853" height="2.4" visible="false"
+src="Carteles_Comprimidos/recorrido_00-INICIO-VR.jpg" animation__pop="property: scale; from: 0.05 0.05 0.05; to: 1 1 1; dur: 380; easing: easeOutBack; startEvents: aparecer"></a-image>
+      
       
 		 
        <!-- Cartel Flecha 1-->
@@ -252,7 +374,7 @@ src="Carteles_Comprimidos/recorrido_00-INICIO.jpg"></a-box>
 		   <!-- Texto oculto que aparece al pasar el cursor por Flecha 1 --> 
 <a-text 
 id="boxText12"
-value="Apunta a las cofres bajo los carteles para aprender sobre Carmen de Burgos y su legado." 
+value="Apunta a los carteles con el mando y pulsa el gatillo para aprender sobre Carmen de Burgos y su legado." 
 align="center"
 color="#FFF" 
 visible="false" 
@@ -353,74 +475,43 @@ geometry="primitive: plane; width: 6">
       
        <!-- Carmen Burgos 4ª hecho  -->
       
-      <a-box
+      <a-box id="cartel04" class="clickable" cartel-interactivo="cartelas: boxText11"
              
-position="12 2.5 12" rotation="0 -135 0"
-scale="1 1 0"	   
+position="12 1.6 12" rotation="0 -135 0"
+depth="0.02"	   
 width="3"
 height="4"
 src="Carteles_Comprimidos/04CARTEL.jpg"></a-box>
 		
-<!-- Caja interactiva --> 
- <a-box 
-class="clickable"        
-position="12 -0.25 12" 
-rotation="0 -45 0" 
-color="#4CC3D9" 
-scale="0.60 0.60 0.60"
-src="Carteles_Comprimidos/04CARTEL.jpg"
- event-set__enter="_event: raycaster-intersected; _target: #boxText11; visible: true"
-  event-set__leave="_event: raycaster-intersected-cleared; _target: #boxText11; visible: false">
-</a-box> 
-
-
-      
-  <!-- Imagen emergente Infografía Carmen Burgos 4ª. -->
+<!-- Imagen emergente Infografía Carmen Burgos 4ª. -->
   <a-image colisionador="forma: auto" 
-           id="boxText11"
+           id="boxText11" width="2.14" height="3" animation__pop="property: scale; from: 0.05 0.05 0.05; to: 1 1 1; dur: 380; easing: easeOutBack; startEvents: aparecer"
            src="Carteles_Comprimidos/04CARTELA.jpg"
             align="center"
 color="#FFF" 
 visible="false" 
-position="14 2 12" rotation="0 -315 0" scale="2 3 0"
-geometry="primitive: plane; width: 1 heigth= 2"></a-image>
+position="14 2 12" rotation="0 -315 0"></a-image>
       
       
 
       
            <!-- Carmen Burgos 5ª  -->
       
-      <a-box
-position="4 2.5 20" rotation="0 -45 0"
-scale="1 1 0"	   
+      <a-box id="cartel05" class="clickable" cartel-interactivo="cartelas: boxText10"
+position="4 1.6 20" rotation="0 -45 0"
+depth="0.02"	   
 width="3"
 height="4"
 src="Carteles_Comprimidos/05CARTEL.jpg"></a-box>
 		
-<!-- Caja interactiva --> 
- <a-box 
-class="clickable" 
-position="4 -0.25 20" 
-rotation="0 -45 0" 
-color="#4CC3D9" 
-scale="0.60 0.60 0.60"
-src="Carteles_Comprimidos/05CARTEL.jpg"
-event-set__enter="_event: raycaster-intersected; _target: #boxText10; visible: true"
-  event-set__leave="_event: raycaster-intersected-cleared; _target: #boxText10; visible: false">
-</a-box> 
-
-
-      
-      
-      <!-- Imagen emergente Infografía Carmen Burgos 5ª. -->
+<!-- Imagen emergente Infografía Carmen Burgos 5ª. -->
   <a-image colisionador="forma: auto" 
-           id="boxText10"
+           id="boxText10" width="2.14" height="3" animation__pop="property: scale; from: 0.05 0.05 0.05; to: 1 1 1; dur: 380; easing: easeOutBack; startEvents: aparecer"
            src="Carteles_Comprimidos/05CARTELA.jpg"
             align="center"
 color="#FFF" 
 visible="false" 
-position="6 2 20" rotation="0 -225 0" scale="2 3 0"
-geometry="primitive: plane; width: 1 heigth= 2"></a-image>
+position="6 2 20" rotation="0 -225 0"></a-image>
       
       
       
@@ -428,36 +519,21 @@ geometry="primitive: plane; width: 1 heigth= 2"></a-image>
       
        <!-- Carmen Burgos 6ª-->
       
-      <a-box
-position="-4 2.5 12" rotation="0 -135 0"
-scale="1 1 0"	   
+      <a-box id="cartel06" class="clickable" cartel-interactivo="cartelas: boxText9"
+position="-4 1.6 12" rotation="0 -135 0"
+depth="0.02"	   
 width="3"
 height="4"
 src="Carteles_Comprimidos/06CARTEL.jpg"></a-box>
 		
-<!-- Caja interactiva --> 
- <a-box
-class="clickable"         
-position="-4 -0.25 12" 
-rotation="0 -45 0" 
-color="#4CC3D9" 
-scale="0.60 0.60 0.60"
-src="Carteles_Comprimidos/06CARTEL.jpg"
-event-set__enter="_event: raycaster-intersected; _target: #boxText9; visible: true"
-  event-set__leave="_event: raycaster-intersected-cleared; _target: #boxText9; visible: false">
-</a-box> 
-
-
-       
-      <!-- Imagen emergente Infografía Carmen Burgos 6ª-->
+<!-- Imagen emergente Infografía Carmen Burgos 6ª-->
   <a-image colisionador="forma: auto" 
-           id="boxText9"
+           id="boxText9" width="2.14" height="3" animation__pop="property: scale; from: 0.05 0.05 0.05; to: 1 1 1; dur: 380; easing: easeOutBack; startEvents: aparecer"
            src="Carteles_Comprimidos/06CARTELA.jpg"
             align="center"
 color="#FFF" 
 visible="false" 
-position="-2 2 12" rotation="0 -315 0" scale="2 3 0"
-geometry="primitive: plane; width: 1 heigth= 2"></a-image>
+position="-2 2 12" rotation="0 -315 0"></a-image>
       
       
       
@@ -465,275 +541,144 @@ geometry="primitive: plane; width: 1 heigth= 2"></a-image>
       
       <!-- Carmen Burgos 7ª-->
       
-      <a-box
-position="-12 2.5 20" rotation="0 -45 0"
-scale="1 1 0"	   
+      <a-box id="cartel07" class="clickable" cartel-interactivo="cartelas: boxText8"
+position="-12 1.6 20" rotation="0 -45 0"
+depth="0.02"	   
 width="3"
 height="4"
 src="Carteles_Comprimidos/07CARTEL.jpg"></a-box>
 		
-<!-- Caja interactiva --> 
- <a-box 
-class="clickable"         
-position="-12 -0.25 20" 
-rotation="0 -45 0" 
-color="#4CC3D9" 
-scale="0.60 0.60 0.60"
-src="Carteles_Comprimidos/07CARTEL.jpg"
-event-set__enter="_event: raycaster-intersected; _target: #boxText8; visible: true"
-  event-set__leave="_event: raycaster-intersected-cleared; _target: #boxText8; visible: false">
-</a-box> 
-
-      
-      <!-- Imagen emergente Infografía Carmen Burgos 7ª. -->
+<!-- Imagen emergente Infografía Carmen Burgos 7ª. -->
   <a-image colisionador="forma: auto" 
-           id="boxText8"
+           id="boxText8" width="2.14" height="3" animation__pop="property: scale; from: 0.05 0.05 0.05; to: 1 1 1; dur: 380; easing: easeOutBack; startEvents: aparecer"
            src="Carteles_Comprimidos/07CARTELA.jpg"
             align="center"
 color="#FFF" 
 visible="false" 
-position="-10 2 20" rotation="0 -225 0" scale="2 3 0"
-geometry="primitive: plane; width: 1 heigth= 2"></a-image>
+position="-10 2 20" rotation="0 -225 0"></a-image>
       
       
       
        
       <!--Carmen Burgos 8ª-->		   
-<a-box
-position="-20 2.5 12" rotation="0 -135 0"
-scale="1 1 0"	   
+<a-box id="cartel08" class="clickable" cartel-interactivo="cartelas: boxText1, boxText8B"
+position="-20 1.6 12" rotation="0 -135 0"
+depth="0.02"	   
 width="3"
 height="4"
 src="Carteles_Comprimidos/08CARTEL.jpg"></a-box>
 		
-<!-- Caja interactiva 8ªA --> 
- <a-box
-class="clickable"         
-position="-18 -0.25 10" 
-rotation="0 -45 0" 
-color="#4CC3D9" 
-scale="0.60 0.60 0.60"
-src="Carteles_Comprimidos/08CARTEL.jpg"
-event-set__enter="_event: raycaster-intersected; _target: #boxText1; visible: true"
-  event-set__leave="_event: raycaster-intersected-cleared; _target: #boxText1; visible: false">
-</a-box> 
-
-
-      <!-- Imagen emergente Infografía Carmen Burgos 8ªA. -->
+<!-- Imagen emergente Infografía Carmen Burgos 8ªA. -->
   <a-image colisionador="forma: auto" 
-           id="boxText1"
+           id="boxText1" width="2.14" height="3" animation__pop="property: scale; from: 0.05 0.05 0.05; to: 1 1 1; dur: 380; easing: easeOutBack; startEvents: aparecer"
            src="Carteles_Comprimidos/08CARTELA-2.jpg"
             align="center"
 color="#FFF" 
 visible="false" 
-position="-18 2 10" rotation="0 -315 0" scale="2 3 0"
-geometry="primitive: plane; width: 1 heigth= 2"></a-image>
+position="-18 2 10" rotation="0 -315 0"></a-image>
       
       
        
       
-      <!-- Caja interactiva 8ªB --> 
- <a-box
-class="clickable"         
-position="-22 -0.25 14" 
-rotation="0 -45 0" 
-color="#4CC3D9" 
-scale="0.60 0.60 0.60"
-src="Carteles_Comprimidos/08CARTEL.jpg"
-event-set__enter="_event: raycaster-intersected; _target: #boxText8B; visible: true"
-  event-set__leave="_event: raycaster-intersected-cleared; _target: #boxText8B; visible: false">
-</a-box> 
-      
-       <a-image colisionador="forma: auto" 
-           id="boxText8B"
+      <a-image colisionador="forma: auto" 
+           id="boxText8B" width="2.14" height="3" animation__pop="property: scale; from: 0.05 0.05 0.05; to: 1 1 1; dur: 380; easing: easeOutBack; startEvents: aparecer"
            src="Carteles_Comprimidos/08CARTELA-1.jpg"
             align="center"
 color="#FFF" 
 visible="false" 
-position="-20 2 14" rotation="0 -315 0" scale="2 3 0"
-geometry="primitive: plane; width: 1 heigth= 2"></a-image>
+position="-20 2 14" rotation="0 -315 0"></a-image>
       
       
 <!-- Carmen Burgos 3ª-->
 		 
-        <a-image position="22 2.5 -12" rotation="0 225 0" src="Carteles_Comprimidos/03CARTEL.jpg"  width="3" height="4"></a-image>
+        <a-image id="cartel03" class="clickable" cartel-interactivo="cartelas: boxText2" position="22 1.6 -12" rotation="0 225 0" src="Carteles_Comprimidos/03CARTEL.jpg"  width="3" height="4"></a-image>
 		   
-	<!-- Caja interactiva --> 
- <a-box
-class="clickable"         
-position="22 -0.25 -12" 
-rotation="0 45 0" 
-color="#4CC3D9" 
-scale="0.60 0.60 0.60"
-src="Carteles_Comprimidos/03CARTEL.jpg"
-event-set__enter="_event: raycaster-intersected; _target: #boxText2; visible: true"
-  event-set__leave="_event: raycaster-intersected-cleared; _target: #boxText2; visible: false">
-</a-box> 
-
-		   
-      
-      <!-- Imagen emergente Infografía Carmen Burgos 3ª. -->
+	<!-- Imagen emergente Infografía Carmen Burgos 3ª. -->
   <a-image colisionador="forma: auto" 
-           id="boxText2"
+           id="boxText2" width="2.14" height="3" animation__pop="property: scale; from: 0.05 0.05 0.05; to: 1 1 1; dur: 380; easing: easeOutBack; startEvents: aparecer"
            src="Carteles_Comprimidos/03CARTELA.jpg"
             align="center"
 color="#FFF" 
 visible="false" 
-position="20 2 -12" rotation="0 225 0" scale="2 3 0"
-geometry="primitive: plane; width: 1 heigth= 2"></a-image>
+position="20 2 -12" rotation="0 225 0"></a-image>
       
       
 		    <!--Carmen Burgos 2ª -->
 		   
 		   
-        <a-image position="14 2.5 -20" rotation="0 -45 0" src="Carteles_Comprimidos/02CARTEL.jpg" width="3" height="4"></a-image>
+        <a-image id="cartel02" class="clickable" cartel-interactivo="cartelas: boxText3" position="14 1.6 -20" rotation="0 -45 0" src="Carteles_Comprimidos/02CARTEL.jpg" width="3" height="4"></a-image>
 		   
 		   
-		   	<!-- Caja interactiva --> 
- <a-box
-class="clickable"         
-position="14 -0.25 -20" 
-rotation="0 45 0" 
-color="#4CC3D9" 
-scale="0.60 0.60 0.60"
-src="Carteles_Comprimidos/02CARTEL.jpg"
-event-set__enter="_event: raycaster-intersected; _target: #boxText3; visible: true"
-  event-set__leave="_event: raycaster-intersected-cleared; _target: #boxText3; visible: false">
-</a-box> 
-
-
-		   
-		  
-		  <!-- Imagen emergente Infografía Carmen Burgos 2ª. -->
+		   	<!-- Imagen emergente Infografía Carmen Burgos 2ª. -->
   <a-image colisionador="forma: auto" 
-           id="boxText3"
+           id="boxText3" width="2.14" height="3" animation__pop="property: scale; from: 0.05 0.05 0.05; to: 1 1 1; dur: 380; easing: easeOutBack; startEvents: aparecer"
            src="Carteles_Comprimidos/02CARTELA.jpg"
             align="center"
 color="#FFF" 
 visible="false" 
-position="12 2 -20" rotation="0 -45 0" scale="2 3 0"
-geometry="primitive: plane; width: 1 heigth= 2"></a-image>
+position="12 2 -20" rotation="0 -45 0"></a-image>
       
 		  
       
       <!--Carmen Burgos 1ª-->
 		   
-		    <a-image  position="6 2.5 -12" rotation="0 225 0"  src="Carteles_Comprimidos/01CARTEL.jpg"  width="3" height="4"></a-image>
+		    <a-image id="cartel01" class="clickable" cartel-interactivo="cartelas: boxText4"  position="6 1.6 -12" rotation="0 225 0"  src="Carteles_Comprimidos/01CARTEL.jpg"  width="3" height="4"></a-image>
 
-	<!-- Caja interactiva -->	   
-<a-box
-class="clickable"        
-position="6 -0.25 -12" 
-rotation="0 45 0" 
-color="#4CC3D9" 
-scale="0.60 0.60 0.60"
-src="Carteles_Comprimidos/01CARTEL.jpg"
-event-set__enter="_event: raycaster-intersected; _target: #boxText4; visible: true"
-  event-set__leave="_event: raycaster-intersected-cleared; _target: #boxText4; visible: false">
-</a-box> 
-
-<!-- Texto oculto que aparece al pasar el cursor --> 
+	<!-- Texto oculto que aparece al pasar el cursor --> 
 
       
       
       <!-- Imagen emergente Infografía Carmen Burgos 1ª. -->
   <a-image colisionador="forma: auto" 
-           id="boxText4"
+           id="boxText4" width="2.14" height="3" animation__pop="property: scale; from: 0.05 0.05 0.05; to: 1 1 1; dur: 380; easing: easeOutBack; startEvents: aparecer"
            src="Carteles_Comprimidos/01CARTELA.jpg"
             align="center"
 color="#FFF" 
 visible="false" 
-position="4 2 -12" rotation="0 225 0" scale="2 3 0"
-geometry="primitive: plane; width: 1 heigth= 2"></a-image>
+position="4 2 -12" rotation="0 225 0"></a-image>
       
       
        <!--Carmen Burgos 11ª-->
 		   
-		    <a-image position="-4 2.5 -12" rotation="0 225 0"  src="Carteles_Comprimidos/11CARTEL.jpg" width="3" height="4"></a-image>
+		    <a-image id="cartel11" class="clickable" cartel-interactivo="cartelas: boxText5" position="-4 1.6 -12" rotation="0 225 0"  src="Carteles_Comprimidos/11CARTEL.jpg" width="3" height="4"></a-image>
 		   
-<!-- Caja interactiva -->
-<a-box
-class="clickable"        
-position="-4 -0.25 -12" 
-rotation="0 45 0" 
-color="#4CC3D9" 
-scale="0.60 0.60 0.60"
-src="Carteles_Comprimidos/11CARTEL.jpg"
-event-set__enter="_event: raycaster-intersected; _target: #boxText5; visible: true"
-  event-set__leave="_event: raycaster-intersected-cleared; _target: #boxText5; visible: false">
-</a-box> 
-
-		   
-		   <!-- Imagen emergente Infografía Carmen Burgos 11ª. -->
+<!-- Imagen emergente Infografía Carmen Burgos 11ª. -->
   <a-image colisionador="forma: auto" 
-           id="boxText5"
+           id="boxText5" width="2.14" height="3" animation__pop="property: scale; from: 0.05 0.05 0.05; to: 1 1 1; dur: 380; easing: easeOutBack; startEvents: aparecer"
            src="Carteles_Comprimidos/11CARTELA.jpg"
             align="center"
 color="#FFF" 
 visible="false" 
-position="-6 2 -12" rotation="0 225 0" scale="2 3 0"
-geometry="primitive: plane; width: 1 heigth= 2"></a-image>
+position="-6 2 -12" rotation="0 225 0"></a-image>
 		  
 		   
 		    <!--Carmen Burgos 10ª -->
-		    <a-image  position="-12 2.5 -20" rotation="0 -45 0"  src="Carteles_Comprimidos/10CARTEL.jpg" width="3" height="4"></a-image>
+		    <a-image id="cartel10" class="clickable" cartel-interactivo="cartelas: boxText6"  position="-12 1.6 -20" rotation="0 -45 0"  src="Carteles_Comprimidos/10CARTEL.jpg" width="3" height="4"></a-image>
 		   
-		   		   <!-- Caja interactiva -->
-<a-box
-class="clickable"        
-position="-12 -0.25 -20" 
-rotation="0 45 0" 
-color="#4CC3D9" 
-scale="0.60 0.60 0.60"
-src="Carteles_Comprimidos/10CARTEL.jpg"
-event-set__enter="_event: raycaster-intersected; _target: #boxText6; visible: true"
-  event-set__leave="_event: raycaster-intersected-cleared; _target: #boxText6; visible: false">
-</a-box> 
-
-
-
-		   
-      
-      <!-- Imagen emergente Infografía Carmen Burgos 10ª. -->
+		   		   <!-- Imagen emergente Infografía Carmen Burgos 10ª. -->
   <a-image colisionador="forma: auto" 
-           id="boxText6"
+           id="boxText6" width="2.14" height="3" animation__pop="property: scale; from: 0.05 0.05 0.05; to: 1 1 1; dur: 380; easing: easeOutBack; startEvents: aparecer"
            src="Carteles_Comprimidos/10CARTELA.jpg"
             align="center"
 color="#FFF" 
 visible="false" 
-position="-14 2 -20" rotation="0 -45 0" scale="2 3 0"
-geometry="primitive: plane; width: 1 heigth= 2"></a-image>
+position="-14 2 -20" rotation="0 -45 0"></a-image>
       
       
       
       
       
       <!--Carmen Burgos 9ª-->
-		    <a-image  position="-20 2.5 -12" rotation="0 225 0"  src="Carteles_Comprimidos/09CARTEL.jpg" width="3" height="4"></a-image>
+		    <a-image id="cartel09" class="clickable" cartel-interactivo="cartelas: boxText7"  position="-20 1.6 -12" rotation="0 225 0"  src="Carteles_Comprimidos/09CARTEL.jpg" width="3" height="4"></a-image>
 
-<a-box
-class="clickable"        
-position="-20 -0.25 -12" 
-rotation="0 45 0" 
-color="#4CC3D9" 
-scale="0.60 0.60 0.60"
-src="Carteles_Comprimidos/09CARTEL.jpg"
-event-set__enter="_event: raycaster-intersected; _target: #boxText7; visible: true"
-  event-set__leave="_event: raycaster-intersected-cleared; _target: #boxText7; visible: false">
-</a-box> 
-
-
- 
-      
-      <!-- Imagen emergente Infografía Carmen Burgos 9ª. -->
+<!-- Imagen emergente Infografía Carmen Burgos 9ª. -->
   <a-image colisionador="forma: auto" 
-           id="boxText7"
+           id="boxText7" width="2.14" height="3" animation__pop="property: scale; from: 0.05 0.05 0.05; to: 1 1 1; dur: 380; easing: easeOutBack; startEvents: aparecer"
            src="Carteles_Comprimidos/09CARTELA.jpg"
             align="center"
 color="#FFF" 
 visible="false" 
-position="-22 2 -12" rotation="0 225 0" scale="2 3 0"
-geometry="primitive: plane; width: 1 heigth= 2"></a-image>
+position="-22 2 -12" rotation="0 225 0"></a-image>
      
       
       
@@ -766,7 +711,7 @@ geometry="primitive: plane; width: 1 heigth= 2"></a-image>
           event-set__enter="_event: raycaster-intersected; _target: #pistaCarmen; visible: true"
           event-set__leave="_event: raycaster-intersected-cleared; _target: #pistaCarmen; visible: false"></a-cylinder>
         <!-- Pista que aparece al apuntar a Carmen -->
-        <a-text id="pistaCarmen" value="Haz clic para saludar" align="center" color="#FFF"
+        <a-text id="pistaCarmen" value="Pulsa el gatillo para saludar" align="center" color="#FFF"
           position="0 1.95 0" width="3" visible="false"></a-text>
       </a-entity>
 
@@ -815,7 +760,7 @@ geometry="primitive: plane; width: 1 heigth= 2"></a-image>
         oculus-touch-controls="hand: left; model: true">
       </a-entity>
          
-      <a-entity camera look-controls position="0 1.6 0"></a-entity>
+      <a-entity id="camera" camera look-controls position="0 1.6 0"></a-entity>
          </a-entity>
 <!-- Fin entidad completa -->
        
@@ -835,30 +780,17 @@ geometry="primitive: plane; width: 1 heigth= 2"></a-image>
       <!-- Carmen de Burgos -->
       <a-entity position="1.6 1.2 -5" colisionador="forma: circulo; radio: 0.45; alto: 2"></a-entity>
       <!-- Carteles -->
-      <a-entity position="6 2.5 -12" rotation="0 225 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 01 -->
-      <a-entity position="14 2.5 -20" rotation="0 -45 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 02 -->
-      <a-entity position="22 2.5 -12" rotation="0 225 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 03 -->
-      <a-entity position="12 2.5 12" rotation="0 -135 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 04 -->
-      <a-entity position="4 2.5 20" rotation="0 -45 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 05 -->
-      <a-entity position="-4 2.5 12" rotation="0 -135 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 06 -->
-      <a-entity position="-12 2.5 20" rotation="0 -45 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 07 -->
-      <a-entity position="-20 2.5 12" rotation="0 -135 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 08 -->
-      <a-entity position="-20 2.5 -12" rotation="0 225 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 09 -->
-      <a-entity position="-12 2.5 -20" rotation="0 -45 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 10 -->
-      <a-entity position="-4 2.5 -12" rotation="0 225 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 11 -->
-      <!-- Cajas interactivas bajo los carteles -->
-      <a-entity position="12 -0.25 12" rotation="0 -45 0" colisionador="ancho: 0.6; fondo: 0.6; alto: 0.6"></a-entity>
-      <a-entity position="4 -0.25 20" rotation="0 -45 0" colisionador="ancho: 0.6; fondo: 0.6; alto: 0.6"></a-entity>
-      <a-entity position="-4 -0.25 12" rotation="0 -45 0" colisionador="ancho: 0.6; fondo: 0.6; alto: 0.6"></a-entity>
-      <a-entity position="-12 -0.25 20" rotation="0 -45 0" colisionador="ancho: 0.6; fondo: 0.6; alto: 0.6"></a-entity>
-      <a-entity position="-18 -0.25 10" rotation="0 -45 0" colisionador="ancho: 0.6; fondo: 0.6; alto: 0.6"></a-entity>
-      <a-entity position="-22 -0.25 14" rotation="0 -45 0" colisionador="ancho: 0.6; fondo: 0.6; alto: 0.6"></a-entity>
-      <a-entity position="22 -0.25 -12" rotation="0 45 0" colisionador="ancho: 0.6; fondo: 0.6; alto: 0.6"></a-entity>
-      <a-entity position="14 -0.25 -20" rotation="0 45 0" colisionador="ancho: 0.6; fondo: 0.6; alto: 0.6"></a-entity>
-      <a-entity position="6 -0.25 -12" rotation="0 45 0" colisionador="ancho: 0.6; fondo: 0.6; alto: 0.6"></a-entity>
-      <a-entity position="-4 -0.25 -12" rotation="0 45 0" colisionador="ancho: 0.6; fondo: 0.6; alto: 0.6"></a-entity>
-      <a-entity position="-12 -0.25 -20" rotation="0 45 0" colisionador="ancho: 0.6; fondo: 0.6; alto: 0.6"></a-entity>
-      <a-entity position="-20 -0.25 -12" rotation="0 45 0" colisionador="ancho: 0.6; fondo: 0.6; alto: 0.6"></a-entity>
+      <a-entity position="6 1.6 -12" rotation="0 225 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 01 -->
+      <a-entity position="14 1.6 -20" rotation="0 -45 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 02 -->
+      <a-entity position="22 1.6 -12" rotation="0 225 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 03 -->
+      <a-entity position="12 1.6 12" rotation="0 -135 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 04 -->
+      <a-entity position="4 1.6 20" rotation="0 -45 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 05 -->
+      <a-entity position="-4 1.6 12" rotation="0 -135 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 06 -->
+      <a-entity position="-12 1.6 20" rotation="0 -45 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 07 -->
+      <a-entity position="-20 1.6 12" rotation="0 -135 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 08 -->
+      <a-entity position="-20 1.6 -12" rotation="0 225 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 09 -->
+      <a-entity position="-12 1.6 -20" rotation="0 -45 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 10 -->
+      <a-entity position="-4 1.6 -12" rotation="0 225 0" colisionador="ancho: 3.2; fondo: 0.4; alto: 4.2"></a-entity> <!-- cartel 11 -->
     </a-entity>
 
     </a-scene>
